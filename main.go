@@ -1,14 +1,20 @@
 package main
 
 import (
-	"fmt"
+	"Kuroashi1995/chirpy/internal/database"
+	"database/sql"
 	"log"
 	"net/http"
+	"os"
 	"sync/atomic"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileServerHits atomic.Int32
+	dbQueries      *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricInc(next http.Handler) http.Handler {
@@ -20,9 +26,18 @@ func (cfg *apiConfig) middlewareMetricInc(next http.Handler) http.Handler {
 }
 
 func main() {
+	//env load
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	//database connection
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Error connecting to the database")
+	}
 	//main api config
 	port := "8080"
 	cfg := &apiConfig{}
+	cfg.dbQueries = database.New(db)
 	cfg.fileServerHits.Store(0)
 
 	//instanciate server mux
@@ -32,10 +47,21 @@ func main() {
 	fileServerHandler := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
 
 	//routing
+	//app
 	serveMux.Handle("/app/", cfg.middlewareMetricInc(fileServerHandler))
-	serveMux.HandleFunc("/healthz", readinessHandler)
-	serveMux.HandleFunc("/metrics", cfg.metricsHandler)
-	serveMux.HandleFunc("/reset", cfg.resetHandler)
+	//admin
+	serveMux.HandleFunc("GET /admin/metrics", cfg.metricsHandler)
+	serveMux.HandleFunc("POST /admin/reset", cfg.resetHandler)
+	//api
+	serveMux.HandleFunc("GET /api/healthz", readinessHandler)
+	//api - chirps
+	serveMux.HandleFunc("POST /api/chirps", cfg.validateAndSaveChirp)
+	serveMux.HandleFunc("GET /api/chirps/", cfg.getAllChirpsHandler)
+	serveMux.HandleFunc("GET /api/chirps/{id}", cfg.getChirpHandler)
+	//api - user
+	serveMux.HandleFunc("POST /api/users", cfg.registerUser)
+	//api - auth
+	serveMux.HandleFunc("POST /api/login", cfg.loginHandler)
 
 	//server configuration
 	server := http.Server{
@@ -45,8 +71,4 @@ func main() {
 
 	//server start
 	log.Fatal(server.ListenAndServe())
-}
-
-func (cfg *apiConfig) metricsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte(fmt.Sprintf("Hits: %v", cfg.fileServerHits.Load())))
 }
