@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -93,3 +94,48 @@ func TestExpiredValidation(t *testing.T) {
 	}
 }
 
+// Header getter tests
+
+type HeaderTestParams = struct {
+	inputHeader string
+	expectedToken string
+}
+
+func TestCorrectHeader (t *testing.T) {
+	testParams := HeaderTestParams {
+		inputHeader: "BEARER testoken",
+		expectedToken: "testoken",
+	}
+	authHeader := http.Header{}
+	authHeader.Add("Authorization", testParams.inputHeader)
+	token, _ := auth.GetBearerToken(authHeader)
+	if token != testParams.expectedToken {
+		t.Errorf("Error in header getter. Expected: %v, Got: %v", token, testParams.expectedToken)
+	}
+}
+
+func TestMissingHeader (t *testing.T) {
+	authHeader := http.Header{}
+	_, err := auth.GetBearerToken(authHeader)
+	if err == nil {
+		t.Error("Expected error in missing token")
+	}
+}
+
+func TestIncorrectHeaderFormatting (t *testing.T) {
+	authHeader := http.Header{}
+	authHeader.Add("Authorization", "testfail")
+	_, err := auth.GetBearerToken(authHeader)
+	if err == nil {
+		t.Error("Expected error incorrect formatting")
+	}
+}
+
+func TestExistingButEmptyHeader (t *testing.T) {
+	authHeader := http.Header{}
+	authHeader.Add( "Authorization", "")
+	_,err := auth.GetBearerToken(authHeader)
+	if err == nil {
+		t.Error("Expected invalid auth header")
+	}
+}
